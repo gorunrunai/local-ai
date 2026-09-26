@@ -37,9 +37,6 @@ CI runs the unit tests and linters on every pull request. Please run the integra
 | Web app | `frontend/src/` | UI features |
 | Mac app and installer | `desktop/`, `install.sh` | packaging |
 
-## Testing the installer before publishing
-`./install-local.sh` runs the real `install.sh`, but installs from this folder (including uncommitted changes) instead of GitHub. Any `install.sh` option works, e.g. `./install-local.sh --dry-run` or `--uninstall`. Running it again updates the install.
-
 ## Releasing a version
 1. Bump the number in `VERSION`.
 2. Add a `## <version> (<YYYY-MM-DD>)` section at the top of `UPDATES.md`, written for users: what's new and what's fixed.

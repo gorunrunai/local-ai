@@ -667,7 +667,7 @@ command -v git >/dev/null 2>&1 || task "Installing git" brew install git
 
 get_program() {
   if [ -d "$HOME_DIR/.git" ]; then
-    git -C "$HOME_DIR" remote set-url origin "$REPO"   # follow GORUNRUN_REPO if it changed (install-local.sh)
+    git -C "$HOME_DIR" remote set-url origin "$REPO"   # follow GORUNRUN_REPO if it changed
     git -C "$HOME_DIR" fetch -q origin "$BRANCH"
     git -C "$HOME_DIR" checkout -q "$BRANCH"
     git -C "$HOME_DIR" merge -q --ff-only "origin/$BRANCH" \

@@ -22,6 +22,7 @@ frontend/public/artifact-runtime/
 models/
 config/models.local.yaml
 .install-complete
+install-local.sh
 searxng/src/
 desktop/build/
 

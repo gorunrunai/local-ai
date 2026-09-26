@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+# A maintainer's local tool, kept out of the repository: its tests run only where it exists.
+needs_install_local = pytest.mark.skipif(not (ROOT / "install-local.sh").exists(), reason="install-local.sh is local only")
 
 
 def dry_run(*args: str) -> tuple[int, str]:
@@ -82,6 +84,7 @@ def test_machine_only_with_dry_run():
     assert r.returncode == 2 and "only work with --dry-run" in r.stdout + r.stderr
 
 
+@needs_install_local
 def test_install_local_dry_run_needs_no_github(tmp_path):
     env = {**os.environ, "NO_COLOR": "1", "GORUNRUN_HOME": "/nonexistent/gorunrun",
            "GORUNRUN_LOCAL_SOURCE": str(tmp_path / "src")}
@@ -91,6 +94,7 @@ def test_install_local_dry_run_needs_no_github(tmp_path):
     assert not (tmp_path / "src").exists()                  # a dry run doesn't even make the snapshot
 
 
+@needs_install_local
 def test_install_local_snapshots_this_folder_and_stacks_updates(tmp_path):
     """install-local.sh copies committed and uncommitted files (not ignored ones) into a local repo
     that install.sh clones, and each run is a new commit on top, so updates fast-forward."""
