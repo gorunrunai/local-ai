@@ -206,19 +206,21 @@ last_log_line() {
 }
 # A download's progress as a bar, from the downloader's `[progress] <done> <total>` lines (bytes).
 # Empty when the current step reports none.
-progress_bar() {   # progress_bar <columns available>: the longest form that fits
-  local room=${1:-80} line got total pct fill i bar="" gb
+progress_bar() {   # progress_bar <columns available>: percentage and GB, with as much bar as fits
+  local room=${1:-80} line got total pct text width fill i bar=""
   line=$(tail -c 20000 "$LOG" 2>/dev/null | LC_ALL=C tr '\r' '\n' \
     | LC_ALL=C awk '/^=== /{p=""} /^\[progress\] [0-9]+ [0-9]+$/{p=$0} END{print p}')
   [ -n "$line" ] || return 0
   got=${line#\[progress\] }; total=${got#* }; got=${got% *}
   [ "$total" -gt 0 ] 2>/dev/null || return 0
-  pct=$(( got * 100 / total )); fill=$(( pct * 16 / 100 ))
-  for ((i = 0; i < 16; i++)); do if [ "$i" -lt "$fill" ]; then bar+="█"; else bar+="░"; fi; done
-  gb="$(awk -v a="$got" -v b="$total" 'BEGIN{printf "%.1f/%.1f GB", a/1073741824, b/1073741824}')"
-  if [ "$room" -ge $(( 16 + 6 + ${#gb} )) ]; then printf '%s %3d%% %s' "$bar" "$pct" "$gb"
-  elif [ "$room" -ge 21 ]; then printf '%s %3d%%' "$bar" "$pct"
-  else printf '%d%%' "$pct"; fi
+  pct=$(( got * 100 / total ))
+  text="$pct% $(awk -v a="$got" -v b="$total" 'BEGIN{printf "%.1f/%.1f GB", a/1073741824, b/1073741824}')"
+  [ "$room" -ge "${#text}" ] || text="$pct%"
+  width=$(( room - ${#text} - 1 )); [ "$width" -gt 20 ] && width=20
+  if [ "$width" -lt 6 ]; then printf '%s' "$text"; return 0; fi
+  fill=$(( pct * width / 100 ))
+  for ((i = 0; i < width; i++)); do if [ "$i" -lt "$fill" ]; then bar+="█"; else bar+="░"; fi; done
+  printf '%s %s' "$bar" "$text"
 }
 
 # card "Title" "line" ... : a rounded box; lines may contain color codes (width is measured without them)
@@ -347,7 +349,7 @@ task() {
   printf '%s' "${ESC}[?25l"
   while kill -0 "$pid" 2>/dev/null; do
     if [ $((tick % 5)) = 0 ]; then
-      room=$(( COLS - ${#label} - 18 )); [ "$room" -lt 0 ] && room=0   # the spinner line may use the full width
+      room=$(( COLS - ${#label} - 12 )); [ "$room" -lt 0 ] && room=0   # the rest of the line: spinner, time (up to 5 chars), last column left free
       detail=$(progress_bar "$room" || true)
       [ -n "$detail" ] || detail=$(last_log_line || true)
       detail=$(printf '%s' "$detail" | sed 's/^[[:space:]]*//' 2>/dev/null | cut -c1-"$room" 2>/dev/null)
