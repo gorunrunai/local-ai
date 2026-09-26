@@ -201,7 +201,22 @@ strip_ansi() { LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g'; }
 # multi-byte character (npm prints "…" and box drawing) must not print "Illegal byte sequence".
 last_log_line() {
   tail -c 3000 "$LOG" 2>/dev/null | LC_ALL=C tr '\r' '\n' 2>/dev/null | strip_ansi 2>/dev/null \
-    | LC_ALL=C grep -a -v -e '^[[:space:]]*$' -e '^=== ' 2>/dev/null | tail -n 1 | iconv -c -f UTF-8 -t UTF-8 2>/dev/null
+    | LC_ALL=C grep -a -v -e '^[[:space:]]*$' -e '^=== ' -e '^\[progress\] ' 2>/dev/null | tail -n 1 \
+    | iconv -c -f UTF-8 -t UTF-8 2>/dev/null
+}
+# A download's progress as a bar, from the downloader's `[progress] <done> <total>` lines (bytes).
+# Empty when the current step reports none.
+progress_bar() {
+  local line got total pct fill i bar=""
+  line=$(tail -c 20000 "$LOG" 2>/dev/null | LC_ALL=C tr '\r' '\n' \
+    | LC_ALL=C awk '/^=== /{p=""} /^\[progress\] [0-9]+ [0-9]+$/{p=$0} END{print p}')
+  [ -n "$line" ] || return 0
+  got=${line#\[progress\] }; total=${got#* }; got=${got% *}
+  [ "$total" -gt 0 ] 2>/dev/null || return 0
+  pct=$(( got * 100 / total )); fill=$(( pct * 16 / 100 ))
+  for ((i = 0; i < 16; i++)); do if [ "$i" -lt "$fill" ]; then bar+="█"; else bar+="░"; fi; done
+  printf '%s %3d%% %s/%s GB' "$bar" "$pct" \
+    "$(awk -v b="$got" 'BEGIN{printf "%.1f", b/1073741824}')" "$(awk -v b="$total" 'BEGIN{printf "%.1f", b/1073741824}')"
 }
 
 # card "Title" "line" ... : a rounded box; lines may contain color codes (width is measured without them)
@@ -330,7 +345,8 @@ task() {
   printf '%s' "${ESC}[?25l"
   while kill -0 "$pid" 2>/dev/null; do
     if [ $((tick % 5)) = 0 ]; then
-      detail=$(last_log_line || true)
+      detail=$(progress_bar || true)
+      [ -n "$detail" ] || detail=$(last_log_line || true)
       room=$(( W - ${#label} - 16 )); [ "$room" -lt 0 ] && room=0
       detail=$(printf '%s' "$detail" | sed 's/^[[:space:]]*//' 2>/dev/null | cut -c1-"$room" 2>/dev/null)
     fi
@@ -650,6 +666,7 @@ local_config > config/models.local.yaml
 task "Installing tools (ffmpeg, uv, Node.js)" make system-deps
 task "Setting up Python" make deps
 task "Getting the model server" make llama-swap
+export GORUNRUN_PROGRESS=1     # the downloader reports bytes, for the progress bar
 task "Downloading AI models ($models_size)" make models
 task "Setting up private web search" make search-setup
 task "Building the app" make app-frontend

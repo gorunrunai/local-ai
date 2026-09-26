@@ -17,10 +17,12 @@ app loading the same repo offline would see the pinned version too, until it dow
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 os.environ["ALLOW_MODEL_DOWNLOADS"] = "1"
@@ -88,19 +90,101 @@ def drop_from_cache(repo: str) -> None:
         strategy.execute()
 
 
+# --- progress for install.sh ----------------------------------------------------------------------
+# With GORUNRUN_PROGRESS=1 (set by install.sh), print `[progress] <done bytes> <total bytes>` about once
+# a second, measured on disk, so the installer can draw a bar with a percentage.
+Job = tuple[str, "list[str] | None", "str | None"]      # (repo, allow patterns, single filename)
+
+
+def planned_files(jobs: list[Job]) -> list[tuple[str, str, str, int]] | None:
+    """(repo, commit, file, bytes) for everything the jobs download; None if the sizes can't be read."""
+    from huggingface_hub import HfApi
+    from huggingface_hub.utils import filter_repo_objects
+
+    out = []
+    try:
+        for repo, patterns, filename in jobs:
+            sha = pinned(repo)
+            info = HfApi().model_info(repo, revision=sha, files_metadata=True)
+            sizes = {f.rfilename: f.size or 0 for f in info.siblings or []}
+            names = [filename] if filename else list(filter_repo_objects(
+                list(sizes), allow_patterns=patterns, ignore_patterns=None if filename else SKIP))
+            out += [(repo, sha, n, sizes.get(n, 0)) for n in names]
+    except Exception as e:  # noqa: BLE001 - progress is a nicety; downloading must not depend on it
+        print(f"(no progress bar: {e})", flush=True)
+        return None
+    return out
+
+
+class Progress:
+    def __init__(self, files: list[tuple[str, str, str, int]] | None):
+        self.files = files or []
+        self.total = sum(f[3] for f in self.files)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def done(self) -> int:
+        cache, n, repos = Path(constants.HF_HUB_CACHE), 0, set()
+        for repo, sha, name, size in self.files:
+            folder = cache / f"models--{repo.replace('/', '--')}"
+            repos.add(folder)
+            if (folder / "snapshots" / sha / name).exists():
+                n += size
+        for folder in repos:                 # files still downloading
+            for part in (folder / "blobs").glob("*.incomplete"):
+                with contextlib.suppress(OSError):
+                    n += part.stat().st_size
+        return min(n, self.total)
+
+    def report(self) -> None:
+        print(f"[progress] {self.done()} {self.total}", flush=True)
+
+    def __enter__(self):
+        if self.total:
+            self.report()
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+        return self
+
+    def _loop(self) -> None:
+        while not self._stop.wait(1.0):
+            self.report()
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+            self.report()
+
+
+def run_jobs(jobs: list[Job]) -> dict[str, str]:
+    """Download the jobs (with a progress line when install.sh asks for one); repo -> local path."""
+    show = os.environ.get("GORUNRUN_PROGRESS") == "1"
+    if show:        # the installer draws one bar; per-file bars would flood its log
+        from huggingface_hub.utils import disable_progress_bars
+
+        disable_progress_bars()
+    paths: dict[str, str] = {}
+    with Progress(planned_files(jobs) if show and jobs else None):
+        for repo, patterns, filename in jobs:
+            paths[repo] = fetch_file(repo, filename) if filename else fetch(repo, patterns)
+    return paths
+
+
 def fetch_video(cfg, only: list[str] | None) -> None:
     """Video weights (~30 GB each). Wan ships PyTorch checkpoints: convert them once to MLX, into the
     shared model cache (~/.cache/gorunrun/models), which survives uninstalling and reinstalling."""
     from inference.video import converted_dir, legacy_converted_dir
 
     venv_python = ROOT / "videogen" / ".venv" / "bin" / "python"
+    jobs: list[Job] = []
+    convert = []
     for vid, spec in cfg.video.items():
         if only and vid not in only:
             continue
-        for repo, patterns in spec.extra_repos:
-            fetch(repo, patterns)
+        jobs += [(repo, patterns, None) for repo, patterns in spec.extra_repos]
         if not spec.convert_to:
-            fetch(spec.repo, spec.files)
+            jobs.append((spec.repo, spec.files, None))
             continue
         out, stamp, sha = converted_dir(spec), converted_dir(spec) / ".source-revision", pinned(spec.repo)
         legacy = legacy_converted_dir(spec)
@@ -116,14 +200,17 @@ def fetch_video(cfg, only: list[str] | None) -> None:
                 print(f"→ removed the duplicate old copy in {legacy}", flush=True)
             print(f"✓ {spec.repo} already converted to MLX in {out}", flush=True)
             continue
-        path = fetch(spec.repo, spec.files)
+        jobs.append((spec.repo, spec.files, None))
+        convert.append((spec, out, stamp, sha))
+    paths = run_jobs(jobs)
+    for spec, out, stamp, sha in convert:
         if not venv_python.exists():
             raise SystemExit("run `make video-setup` first (the converter lives in the videogen venv)")
         print(f"→ converting {spec.repo} to MLX in {out} (one time)", flush=True)
         tmp = out.with_name(out.name + ".partial")
         shutil.rmtree(tmp, ignore_errors=True)
-        subprocess.run([str(venv_python), "-m", "mlx_video.models.wan_2.convert", "--checkpoint-dir", path,
-                        "--output-dir", str(tmp)], check=True)
+        subprocess.run([str(venv_python), "-m", "mlx_video.models.wan_2.convert", "--checkpoint-dir",
+                        paths[spec.repo], "--output-dir", str(tmp)], check=True)
         shutil.rmtree(out, ignore_errors=True)      # an older revision's conversion, if any
         tmp.rename(out)
         stamp.write_text(sha)
@@ -146,20 +233,17 @@ def main() -> None:
         return
     llm_ids = args.only or ([*cfg.llms] if args.all else
                             [m for m in (cfg.defaults.llm, cfg.defaults.audio_listener) if m])
-    for mid in dict.fromkeys(llm_ids):  # the chat model may also be the voice listener
-        if mid not in cfg.llms:
-            continue
-        spec = cfg.llms[mid]
-        fetch(spec.repo)
-    if args.only:
-        return
-    for group in (cfg.stt, cfg.tts, cfg.embeddings, cfg.rerankers):
-        for spec in group.values():
-            fetch(spec.repo)
-            for repo, patterns in EXTRA.get(spec.engine, []):
-                fetch(repo, patterns)
-    fetch_file(*SMART_TURN)                 # turn detection
-    print("all models downloaded")
+    jobs: list[Job] = [(cfg.llms[m].repo, None, None) for m in dict.fromkeys(llm_ids)  # chat model may
+                       if m in cfg.llms]                                                  # also be the listener
+    if not args.only:
+        for group in (cfg.stt, cfg.tts, cfg.embeddings, cfg.rerankers):
+            for spec in group.values():
+                jobs.append((spec.repo, None, None))
+                jobs += [(repo, patterns, None) for repo, patterns in EXTRA.get(spec.engine, [])]
+        jobs.append((SMART_TURN[0], None, SMART_TURN[1]))         # turn detection
+    run_jobs(jobs)
+    if not args.only:
+        print("all models downloaded")
 
 
 if __name__ == "__main__":

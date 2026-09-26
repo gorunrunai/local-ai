@@ -113,3 +113,47 @@ def test_an_old_duplicate_is_removed_once_the_shared_copy_exists(tmp_path, monke
     monkeypatch.setattr(dm, "fetch", lambda repo, patterns=None: str(tmp_path))
     dm.fetch_video(cfg, ["wan-2.2-5b"])
     assert (out / "config.json").exists() and not legacy.exists()
+
+
+def test_progress_counts_finished_and_partial_bytes(tmp_path, monkeypatch):
+    """install.sh draws its download bar from these numbers."""
+    monkeypatch.setattr(dm.constants, "HF_HUB_CACHE", str(tmp_path))
+    folder = tmp_path / "models--org--m"
+    (folder / "snapshots" / "abc").mkdir(parents=True)
+    (folder / "snapshots" / "abc" / "config.json").write_text("{}")          # finished: counts in full
+    (folder / "blobs").mkdir()
+    (folder / "blobs" / "x.incomplete").write_bytes(b"\0" * 300)            # downloading: counts so far
+    p = dm.Progress([("org/m", "abc", "config.json", 100), ("org/m", "abc", "model.safetensors", 1000)])
+    assert p.total == 1100 and p.done() == 400
+
+
+def test_planned_files_follow_the_same_filters_as_the_download(monkeypatch):
+    from types import SimpleNamespace
+
+    files = ["config.json", "model.safetensors", "onnx/model.onnx", "voices/af.safetensors", "README.md"]
+
+    class FakeApi:
+        def model_info(self, repo, revision, files_metadata):
+            return SimpleNamespace(siblings=[SimpleNamespace(rfilename=f, size=10) for f in files])
+
+    import huggingface_hub
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    monkeypatch.setattr(dm, "REVISIONS", {"org/m": "a" * 40, "org/v": "b" * 40})
+    plan = dm.planned_files([("org/m", None, None), ("org/v", ["voices/*.safetensors"], None),
+                             ("org/m", None, "README.md")])
+    names = [(r, n) for r, _, n, _ in plan]
+    assert ("org/m", "onnx/model.onnx") not in names                     # skipped formats aren't counted
+    assert ("org/v", "voices/af.safetensors") in names and ("org/v", "config.json") not in names
+    assert names[-1] == ("org/m", "README.md")
+
+
+def test_no_network_means_no_bar_not_no_download(monkeypatch):
+    import huggingface_hub
+
+    def boom():
+        raise OSError("offline")
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", boom)
+    monkeypatch.setattr(dm, "REVISIONS", {"org/m": "a" * 40})
+    assert dm.planned_files([("org/m", None, None)]) is None
