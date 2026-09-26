@@ -491,6 +491,11 @@ else
   if [ "$MODEL" = gemma ]; then ok "AI model  ${B}Gemma 4 (12B)${R}"; else ok "AI model  ${B}Qwen 3.5 (35B)${R}"; fi
 fi
 
+# An install that finished (the last step leaves a marker; installs from before the marker have the
+# app). A first install that was stopped part way still counts as new, so it gets new-install defaults.
+INSTALLED=0
+if [ -d "$HOME_DIR/.git" ] && { [ -f "$HOME_DIR/.install-complete" ] || [ -d "$APP" ]; }; then INSTALLED=1; fi
+
 # Video engines an earlier run already set up (updates keep them).
 HAVE_VIDEO=""
 if [ -x "$HOME_DIR/videogen/.venv/bin/python" ]; then
@@ -554,7 +559,7 @@ else
     fi
   elif [ "$NO_VIDEO" = 1 ]; then
     VIDEO=""
-  elif [ -z "$VIDEO" ] && [ "$WITH_VIDEO" = 0 ] && { [ -d "$HOME_DIR/.git" ] || [ "$CAN_WAN" = 0 ]; }; then
+  elif [ -z "$VIDEO" ] && [ "$WITH_VIDEO" = 0 ] && { [ "$INSTALLED" = 1 ] || [ "$CAN_WAN" = 0 ]; }; then
     VIDEO=""   # updating an install without video, or a 48 GB Mac (untested): off unless picked
     if [ "$INTERACTIVE" = 1 ]; then video_menu "Video creation" 1 none; fi
   elif [ -z "$VIDEO" ]; then
@@ -603,7 +608,9 @@ xcode-select -p >/dev/null 2>&1 || missing="$missing Apple's command line tools,
 command -v brew >/dev/null 2>&1 || [ -x /opt/homebrew/bin/brew ] || missing="$missing Homebrew,"
 for tool in git ffmpeg uv node; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool,"; done
 if [ -n "$missing" ]; then tools_text="${missing# }"; tools_text="${tools_text%,}"; else tools_text="all present"; fi
-if [ -d "$HOME_DIR/.git" ]; then files_text="update $SHOWN_HOME"; else files_text="new, in $SHOWN_HOME"; fi
+if [ "$INSTALLED" = 1 ]; then files_text="update $SHOWN_HOME"
+elif [ -d "$HOME_DIR/.git" ]; then files_text="finish the setup in $SHOWN_HOME"
+else files_text="new, in $SHOWN_HOME"; fi
 if [ "$TESTED" = 1 ]; then mac_text="$chip, ${mem_gb} GB (tested)"
 else mac_text="$chip, ${mem_gb} GB ${YELLOW}(untested: please report)${R}"; fi
 if [ "$free_gb" -ge "$need_disk" ]; then disk_text="about ${need_disk} GB of ${free_gb} GB free"
@@ -688,6 +695,7 @@ if [ -n "$VIDEO_IDS" ]; then
 fi
 osascript -e 'quit app "GoRunRun Local AI"' >/dev/null 2>&1 || true
 task "Installing the GoRunRun Local AI app" make desktop-install
+touch "$HOME_DIR/.install-complete"
 
 # --- 5. done ----------------------------------------------------------------------------------------
 ready=$(card "${GREEN}✓${R}${B} GoRunRun Local AI is ready${R}" \

@@ -21,6 +21,7 @@ frontend/tsconfig.tsbuildinfo
 frontend/public/artifact-runtime/
 models/
 config/models.local.yaml
+.install-complete
 searxng/src/
 desktop/build/
 
