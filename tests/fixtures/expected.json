@@ -1,0 +1,29 @@
+{
+  "chart_values": {
+    "Q1": 42,
+    "Q2": 57,
+    "Q3": 31,
+    "Q4": 68
+  },
+  "error_message": "PermissionError: [Errno 13] Permission denied: '/var/log/app/worker-7.log'",
+  "dictation_text": "Please schedule the quarterly review for Thursday at three thirty, and remind the design team to bring the updated prototypes.",
+  "voice_question_answer": "Canberra",
+  "tour": {
+    "visual_q": "What is written on screen in the second scene?",
+    "visual_a": "LOADING DOCK",
+    "visual_t": [
+      20,
+      40
+    ],
+    "audio_q": "What is the vault password mentioned in the narration?",
+    "audio_a": "marmalade",
+    "audio_t": [
+      62,
+      70
+    ]
+  },
+  "short_clip": {
+    "magic_number": 19
+  },
+  "voice_barge_answer": "4"
+}

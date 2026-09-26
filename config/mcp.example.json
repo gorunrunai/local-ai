@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/YOU/Documents"],
+      "policy": "confirm"
+    },
+    "demo": {
+      "command": "uv",
+      "args": ["run", "python", "tests/fixtures/mcp/demo_server.py"],
+      "enabled": false
+    },
+    "remote-example": {
+      "url": "http://127.0.0.1:9000/mcp",
+      "policy": "allow",
+      "enabled": false
+    }
+  }
+}

@@ -1,0 +1,48 @@
+# Built-in tools. `policy`: allow | confirm | deny. Tools with side effects outside the chat
+# default to confirm; users can override per tool in Settings (stored in the DB).
+
+agent:
+  max_iterations: 8            # model <-> tool round trips per reply
+  tool_output_max_chars: 12000 # longer outputs are clipped before going back to the model
+  confirmation_timeout_s: 300  # an unanswered confirmation counts as "deny"
+
+tools:
+  web_fetch:
+    enabled: true
+    policy: allow
+  web_search:
+    enabled: true               # local SearXNG (`make search-setup`); started on first search
+    policy: allow
+    searxng_url: http://127.0.0.1:8888
+  code_exec:
+    enabled: true
+    policy: allow               # sandboxed: no network, writes only to its own folder
+    timeout_s: 60
+  file_read:
+    enabled: true
+    policy: allow
+  file_search:
+    enabled: true
+    policy: allow
+  memory_save:
+    enabled: true
+    policy: allow
+  memory_search:
+    enabled: true
+    policy: allow
+  conversation_search:
+    enabled: true
+    policy: allow
+  create_artifact:
+    enabled: true
+    policy: allow
+  analyze_media:
+    enabled: true
+    policy: allow
+  generate_video:
+    enabled: true
+    policy: confirm             # a render takes minutes and may unload other models to fit memory
+
+mcp:
+  default_policy_read_only: allow
+  default_policy: confirm

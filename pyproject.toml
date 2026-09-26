@@ -1,0 +1,81 @@
+[project]
+name = "gorunrun-local"
+version = "0.1.0"
+description = "GoRunRun Local AI: a private, fully local multimodal AI assistant for Apple Silicon Macs"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # web / orchestration
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.53.0",
+    "sse-starlette==3.4.11",
+    "python-multipart==0.0.32",
+    "aiosqlite==0.22.1",
+    "jsonschema==4.26.0",
+    "json-repair==0.63.5",
+    "trafilatura==2.2.0",
+    "mcp==2.2.0",
+    "httpx==0.28.1",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "pyyaml==6.0.3",
+    "psutil==7.2.2",
+    "huggingface-hub>=1.3,<2",
+    # inference (MLX)
+    "mlx==0.32.2",
+    "mlx-vlm==0.7.3",
+    "mlx-audio==0.5.6",
+    "parakeet-mlx==0.5.2",
+    "mlx-whisper==0.4.3",
+    "misaki[en]==0.9.4",
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    # embeddings / VAD
+    "torch==2.14.0",
+    "sentence-transformers==6.1.0",
+    "silero-vad==6.2.3",
+    "onnxruntime==1.30.0",
+    "sqlite-vec==0.1.9",
+    # media + documents
+    "numpy==2.5.3",
+    "soundfile==0.14.0",
+    "pillow==12.3.0",
+    "pillow-heif==1.8.0",
+    "pymupdf==1.28.2",
+    "python-docx==1.2.0",
+    "python-pptx==1.0.2",
+    "openpyxl==3.1.5",
+    "pyobjc-framework-Vision==12.2.2",
+    # code_exec sandbox libraries
+    "matplotlib==3.11.2",
+    "pandas==3.0.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.16.8",
+]
+
+[tool.uv]
+package = false
+# Always uv's own Python: system and runner-provided Pythons are often built without SQLite
+# extension loading, which sqlite-vec (memory and file search) needs.
+python-preference = "only-managed"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: needs real local models (run with `make test-integration`)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# B008: FastAPI's File()/Form() defaults are the idiomatic pattern.
+# RUF012: tool JSON schemas are read-only class attributes.
+ignore = ["B008", "RUF012"]

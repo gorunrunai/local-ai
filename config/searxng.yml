@@ -1,0 +1,27 @@
+# Local SearXNG for the web_search tool (started by the backend on first use; see orchestrator/search.py).
+# Listens on loopback only. Queries go to the public search engines SearXNG aggregates; no API keys.
+use_default_settings: true
+
+general:
+  instance_name: "Local Assistant search"
+  enable_metrics: false
+
+server:
+  bind_address: "127.0.0.1"
+  port: 8888
+  secret_key: "set-from-SEARXNG_SECRET"   # replaced at runtime by the SEARXNG_SECRET environment variable
+  limiter: false          # the rate limiter is for public instances
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats: [html, json]
+
+ui:
+  static_use_hash: true
+
+engines:
+  - name: torch            # needs an optional dependency; unused here
+    disabled: true

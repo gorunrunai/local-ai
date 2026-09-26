@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Python lint and unit tests
+    runs-on: macos-15          # Apple Silicon: MLX, Metal and Apple Vision are available
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: brew install ffmpeg
+      - run: uv python install 3.12   # uv's Python (see python-preference in pyproject.toml)
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run pytest -q    # unit tests only; integration tests need the real models
+
+  frontend:
+    name: Web app type check and unit tests
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npx vitest run
+      - run: npm run build

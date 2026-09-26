@@ -1,0 +1,14 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    attributes: {label: What happened?, description: What did you do, and what did you expect instead?}
+    validations: {required: true}
+  - type: input
+    attributes: {label: Mac model and memory, placeholder: "MacBook Pro M4 Max, 64 GB"}
+    validations: {required: true}
+  - type: input
+    attributes: {label: macOS version, placeholder: "26.1"}
+  - type: textarea
+    attributes: {label: Logs, description: "Relevant lines from data/logs/ (please remove anything private)", render: text}

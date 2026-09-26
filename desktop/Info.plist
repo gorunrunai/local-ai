@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>GoRunRun Local AI</string>
+  <key>CFBundleDisplayName</key><string>GoRunRun Local AI</string>
+  <key>CFBundleIdentifier</key><string>ai.gorunrun.local.desktop</string>
+  <key>CFBundleExecutable</key><string>GoRunRunLocalAI</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Copyright 2026 GoRunRun. Apache License 2.0.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Voice conversations and dictation are processed on this Mac by the local AI.</string>
+  <key>NSCameraUsageDescription</key><string>Take a photo or clip to share with the local AI. It stays on this Mac.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+</dict>
+</plist>

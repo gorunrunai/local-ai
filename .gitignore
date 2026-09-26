@@ -1,0 +1,48 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.env
+
+# runtime state, caches, logs, generated configs
+data/
+bin/llama-swap
+bin/*.md
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/dev-dist/
+frontend/tsconfig.tsbuildinfo
+frontend/public/artifact-runtime/
+models/
+config/models.local.yaml
+searxng/src/
+desktop/build/
+
+# AI assistant and editor files (kept locally, never published)
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+.claude/
+AGENTS.md
+GEMINI.md
+.cursor/
+.cursorrules
+.windsurfrules
+.aider*
+.github/copilot-instructions.md
+.continue/
+.idea/
+.vscode/
+*.swp
+
+# internal development notes and scratch space
+docs/
+scratch/
+notes/
+*.local.md

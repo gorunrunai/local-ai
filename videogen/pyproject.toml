@@ -1,0 +1,21 @@
+# Separate environment for local video generation, kept apart from the app's venv so the
+# video engines' dependency pins (mlx-lm, opencv, ...) can't disturb the chat stack.
+# The backend runs these engines as subprocesses: `videogen/.venv/bin/python -m ...`.
+[project]
+name = "local-llm-videogen"
+version = "0.1.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "ltx-core-mlx",        # LTX-2.3 (Lightricks), pure-MLX port by dgrauet
+    "ltx-pipelines-mlx",
+    "mlx-video",           # Wan 2.2 (Alibaba) via Blaizzy/mlx-video
+    "torch>=2.4",          # only for the one-time Wan .pth -> MLX conversion
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ltx-core-mlx = { git = "https://github.com/dgrauet/ltx-2-mlx.git", rev = "7296f236acf12cbf7f7653e3d0acdd4174d7be1e", subdirectory = "packages/ltx-core-mlx" }
+ltx-pipelines-mlx = { git = "https://github.com/dgrauet/ltx-2-mlx.git", rev = "7296f236acf12cbf7f7653e3d0acdd4174d7be1e", subdirectory = "packages/ltx-pipelines-mlx" }
+mlx-video = { git = "https://github.com/Blaizzy/mlx-video.git", rev = "87db56a51758fefb748a359b90a5283bb8ba4837" }

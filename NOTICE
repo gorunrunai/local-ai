@@ -1,0 +1,37 @@
+GoRunRun Local AI
+Copyright 2026 GoRunRun (https://gorunrun.ai)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Model weights
+-------------
+No model weights are included in this repository. `make setup` (or install.sh) downloads
+them from Hugging Face, and each model is used under its own license. By downloading a model
+you accept its terms; read the model card linked below before using the outputs commercially.
+
+Chat and listening
+  Qwen3.5-35B-A3B (mlx-community/Qwen3.5-35B-A3B-4bit)          Apache-2.0
+  Gemma 4 12B (mlx-community/gemma-4-12B-it-4bit)               Apache-2.0
+Speech
+  Parakeet TDT 0.6B v2 (mlx-community/parakeet-tdt-0.6b-v2)      CC-BY-4.0 (attribution: NVIDIA)
+  Whisper large-v3-turbo (mlx-community/whisper-large-v3-turbo)  MIT (OpenAI)
+  Kokoro-82M (mlx-community/Kokoro-82M-bf16, prince-canuma/Kokoro-82M)  Apache-2.0
+  Silero VAD                                                     MIT
+  Smart Turn v3 (pipecat-ai/smart-turn-v3)                       BSD-2-Clause
+Retrieval
+  Granite Embedding 311M R2 (ibm-granite/granite-embedding-311m-multilingual-r2)  Apache-2.0
+  ettin-reranker-400m (cross-encoder/ettin-reranker-400m-v1)     Apache-2.0
+Video generation (optional, `make models-video`)
+  LTX-2.3 (Lightricks/LTX-2.3; MLX weights dgrauet/ltx-2.3-mlx-q4)
+                                                                 LTX-2 Community License Agreement
+  Gemma 3 12B, LTX text encoder (mlx-community/gemma-3-12b-it-4bit)  Gemma Terms of Use
+  Wan 2.2 TI2V-5B (Wan-AI/Wan2.2-TI2V-5B)                        Apache-2.0
+  UMT5-XXL tokenizer (google/umt5-xxl)                           Apache-2.0
+
+Software installed or run alongside (not vendored)
+--------------------------------------------------
+  llama-swap (MIT), MLX / mlx-vlm / mlx-audio / mlx-lm (MIT),
+  ltx-2-mlx (MIT), mlx-video (MIT), SearXNG (AGPL-3.0; runs as a separate, unmodified
+  process from its own source checkout in searxng/src), FFmpeg (LGPL/GPL, via Homebrew).
+  Python and JavaScript dependencies are listed in pyproject.toml / uv.lock and
+  frontend/package.json / package-lock.json with their own licenses.

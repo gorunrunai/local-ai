@@ -1,0 +1,158 @@
+# Model registry. The model manager turns the `llms` section into a llama-swap config
+# (data/llama-swap.yaml) and runs every LLM as an isolated upstream process on localhost.
+# STT / TTS / embeddings run in-process in the backend and are loaded lazily.
+# Per-machine overrides (e.g. the installer's model choice and memory budget) go in
+# config/models.local.yaml, which is merged over this file and never committed.
+
+memory_budget_gb: 45          # hard cap for all resident models together
+proxy:
+  listen: 127.0.0.1:8090      # llama-swap; never bind to 0.0.0.0
+  binary: bin/llama-swap
+  health_timeout_s: 300       # first load of a large model can be slow
+
+defaults:
+  llm: qwen3.5-35b-a3b          # always loaded; answers every turn
+  audio_listener: gemma-4-12b    # loaded on demand; writes a transcript + tone note for voice messages
+  title_llm: qwen3.5-35b-a3b
+  stt: parakeet-v2
+  tts: kokoro
+  embeddings: granite-311m
+  reranker: ettin-400m
+  video: ltx-2.3                 # generate_video tool; runs in the separate videogen/ venv
+
+# Which LLMs may run at the same time (llama-swap "matrix" sets). A model not listed in
+# any set runs alone. evict_cost: higher = llama-swap prefers to keep it loaded.
+concurrency:
+  sets:
+    main: "qwen3.5-35b-a3b & gemma-4-12b"
+  evict_costs:
+    qwen3.5-35b-a3b: 10
+
+llms:
+  gemma-4-12b:
+    display_name: Gemma 4 12B
+    repo: mlx-community/gemma-4-12B-it-4bit
+    est_memory_gb: 10            # measured 7.3-7.9 GB; headroom for KV cache
+    context_length: 32768
+    ttl_s: 900                   # unload after 15 idle minutes
+    prefix_cache_gb: 1
+    capabilities: {image: true, audio: true, video: true, tools: true, thinking: true}
+    limits:
+      audio_seconds: 30          # longer audio is transcribed instead of passed natively
+      video_seconds: 60
+      video_frames: 32
+      images_per_message: 8
+      image_max_side: 896
+      image_tokens: 280
+
+  qwen3.5-35b-a3b:
+    display_name: Qwen3.5 35B-A3B
+    repo: mlx-community/Qwen3.5-35B-A3B-4bit
+    est_memory_gb: 22            # measured 20.1 GB
+    context_length: 65536
+    ttl_s: 0                     # never unload
+    thinking_budget: 1024
+    prefix_cache_gb: 3           # reuse system prompt/tools/history KV across turns (RAM only)
+    capabilities: {image: true, audio: false, video: true, tools: true, thinking: true}
+    limits:
+      audio_seconds: 0
+      video_seconds: 600
+      video_frames: 32
+      video_frame_max_side: 640  # ~250 tokens per keyframe instead of ~700
+      images_per_message: 16
+      image_max_side: 1280
+      image_tokens: 700          # estimate for budgeting
+
+
+stt:
+  parakeet-v2:
+    engine: parakeet-mlx
+    repo: mlx-community/parakeet-tdt-0.6b-v2
+    est_memory_gb: 2.5
+    languages: [en]
+    idle_unload_s: 600
+  whisper-turbo:
+    engine: mlx-whisper
+    repo: mlx-community/whisper-large-v3-turbo
+    est_memory_gb: 3
+    languages: [multilingual]
+    idle_unload_s: 600
+
+tts:
+  kokoro:
+    engine: mlx-audio
+    repo: mlx-community/Kokoro-82M-bf16
+    est_memory_gb: 0.8
+    default_voice: af_heart
+    sample_rate: 24000
+    idle_unload_s: 900
+
+embeddings:
+  granite-311m:
+    engine: sentence-transformers
+    repo: ibm-granite/granite-embedding-311m-multilingual-r2
+    est_memory_gb: 0.8
+    dims: 768
+    idle_unload_s: 1800
+
+rerankers:
+  ettin-400m:
+    engine: cross-encoder
+    repo: cross-encoder/ettin-reranker-400m-v1
+    device: mps                # 16 passages in ~0.26 s (CPU: ~1.6 s); costs ~2.3 GB, unloaded when idle
+    est_memory_gb: 2.5
+    idle_unload_s: 1800
+
+# Local video generation (the generate_video tool). Each run is a subprocess in the separate
+# `videogen/` venv (`make video-setup`); weights come from `make models-video`. While a clip
+# renders, the manager unloads other LLMs (e.g. Gemma) as needed to stay inside the budget.
+video:
+  ltx-2.3:
+    display_name: LTX-2.3 22B distilled (4-bit) · video + sound
+    engine: ltx-2-mlx
+    repo: dgrauet/ltx-2.3-mlx-q4
+    files: ["*.json", "LICENSE", "audio_vae.safetensors", "connector.safetensors",
+            "transformer-distilled-1.1.safetensors", "spatial_upscaler_x2_v1_1.safetensors",
+            "vae_decoder.safetensors", "vae_encoder.safetensors", "vocoder.safetensors"]
+    text_encoder: mlx-community/gemma-3-12b-it-4bit
+    extra_repos: [["mlx-community/gemma-3-12b-it-4bit", null]]
+    est_memory_gb: 17             # measured peak 15.9 GB for 4 s at 768x512
+    fps: 24
+    frame_step: 8                # 1 + 8k frames
+    max_seconds: 10
+    sizes: {landscape: [768, 512], portrait: [512, 768], square: [640, 640]}
+    audio: true
+  wan-2.2-5b:
+    display_name: Wan 2.2 TI2V-5B
+    engine: mlx-video-wan
+    repo: Wan-AI/Wan2.2-TI2V-5B
+    files: ["*.json", "*.safetensors", "*.pth", "google/*", "README.md"]
+    extra_repos: [["google/umt5-xxl", ["config.json", "tokenizer*", "spiece.model", "special_tokens_map.json"]]]
+    convert_to: video/wan2.2-ti2v-5b-mlx   # in ~/.cache/gorunrun/models (kept on uninstall)
+    est_memory_gb: 32             # measured peak 31.2 GB (VAE decode) for 4 s at 960x544
+    fps: 24
+    frame_step: 4                # 1 + 4k frames
+    max_seconds: 5
+    steps: 25                    # engine default 40; 25 UniPC steps keep a 4 s clip near 7 minutes
+    # Trained at 1280x704, but at that size a 4 s clip takes well over 10 minutes here.
+    sizes: {landscape: [960, 544], portrait: [544, 960], square: [704, 704]}
+
+# Exact Hugging Face commits for every model repo `make models` / `make models-video` downloads:
+# the versions tested with this release. The downloader fetches exactly these and points the
+# local cache at them, so the app (which loads models offline) always uses them. To move to a
+# newer upload, test it, then change the commit here. A unit test checks every repo is pinned.
+revisions:
+  mlx-community/Qwen3.5-35B-A3B-4bit: 1e20fd8d42056f870933bf98ca6211024744f7ec
+  mlx-community/gemma-4-12B-it-4bit: 73bcf09092aa277861d5a191b989b666f7f32e8f
+  mlx-community/parakeet-tdt-0.6b-v2: 8ae155301e23d820d82aa60d24817c900e69e487
+  mlx-community/whisper-large-v3-turbo: a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb
+  mlx-community/Kokoro-82M-bf16: a71e4d38b236d968966a2002c4c895dbd12b1c3c
+  prince-canuma/Kokoro-82M: e02c9eada7ce7416798af36b190a8a2dd2ecd566          # voice files
+  ibm-granite/granite-embedding-311m-multilingual-r2: 44399559930365213510b1ee2eb15ded83374f0e
+  cross-encoder/ettin-reranker-400m-v1: 5dca36282a5d85f368d2544002513a29159b4c9e
+  pipecat-ai/smart-turn-v3: f766f81d3cfdf7737ac64aad813d91bbfd56bf93          # end-of-turn detection
+  dgrauet/ltx-2.3-mlx-q4: 56a5866d638ecfe37c54d348e88938235185c2d4
+  mlx-community/gemma-3-12b-it-4bit: 86cc6a8dedbc456dd0e4af01a9d09f396f77e558  # LTX text encoder
+  Wan-AI/Wan2.2-TI2V-5B: 921dbaf3f1674a56f47e83fb80a34bac8a8f203e
+  google/umt5-xxl: 66cb9e7e85526fe440a945569e42c72fb6cbc0ad                   # Wan tokenizer
+
