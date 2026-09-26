@@ -65,7 +65,13 @@ FANCY=0        # colors, menus, spinners (a real terminal)
 INTERACTIVE=0  # we may ask questions (a keyboard is attached)
 if [ "$ASSUME_YES" = 0 ] && { : </dev/tty; } 2>/dev/null; then INTERACTIVE=1; fi
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ] && [ "$INTERACTIVE" = 1 ]; then FANCY=1; fi
-COLS=$(tput cols 2>/dev/null || echo 80); [ "$COLS" -gt 0 ] 2>/dev/null || COLS=80
+term_cols() {   # the window's width. Ask the terminal itself: under `curl | bash`, tput has none to ask
+  local c; c=$( (stty size </dev/tty) 2>/dev/null | awk '{print $2}')
+  [ "${c:-0}" -gt 0 ] 2>/dev/null || c=$(tput cols 2>/dev/null)
+  [ "${c:-0}" -gt 0 ] 2>/dev/null || c=80
+  echo "$c"
+}
+COLS=$(term_cols)
 W=$COLS; [ "$W" -gt 76 ] && W=76
 
 ESC=$'\033'
@@ -349,6 +355,7 @@ task() {
   printf '%s' "${ESC}[?25l"
   while kill -0 "$pid" 2>/dev/null; do
     if [ $((tick % 5)) = 0 ]; then
+      COLS=$(term_cols)   # follows the window if it is resized
       room=$(( COLS - ${#label} - 12 )); [ "$room" -lt 0 ] && room=0   # the rest of the line: spinner, time (up to 5 chars), last column left free
       detail=$(progress_bar "$room" || true)
       [ -n "$detail" ] || detail=$(last_log_line || true)
