@@ -27,6 +27,10 @@ from pathlib import Path
 
 os.environ["ALLOW_MODEL_DOWNLOADS"] = "1"
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+if os.environ.get("GORUNRUN_PROGRESS") == "1":
+    # The Xet transfer assembles large files in memory and writes them in big pieces, so progress
+    # measured on disk would stall for minutes. Classic downloads (same servers) write as they go.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from huggingface_hub import constants, hf_hub_download, snapshot_download

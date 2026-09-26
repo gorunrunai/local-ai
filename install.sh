@@ -206,8 +206,8 @@ last_log_line() {
 }
 # A download's progress as a bar, from the downloader's `[progress] <done> <total>` lines (bytes).
 # Empty when the current step reports none.
-progress_bar() {
-  local line got total pct fill i bar=""
+progress_bar() {   # progress_bar <columns available>: the longest form that fits
+  local room=${1:-80} line got total pct fill i bar="" gb
   line=$(tail -c 20000 "$LOG" 2>/dev/null | LC_ALL=C tr '\r' '\n' \
     | LC_ALL=C awk '/^=== /{p=""} /^\[progress\] [0-9]+ [0-9]+$/{p=$0} END{print p}')
   [ -n "$line" ] || return 0
@@ -215,8 +215,10 @@ progress_bar() {
   [ "$total" -gt 0 ] 2>/dev/null || return 0
   pct=$(( got * 100 / total )); fill=$(( pct * 16 / 100 ))
   for ((i = 0; i < 16; i++)); do if [ "$i" -lt "$fill" ]; then bar+="█"; else bar+="░"; fi; done
-  printf '%s %3d%% %s/%s GB' "$bar" "$pct" \
-    "$(awk -v b="$got" 'BEGIN{printf "%.1f", b/1073741824}')" "$(awk -v b="$total" 'BEGIN{printf "%.1f", b/1073741824}')"
+  gb="$(awk -v a="$got" -v b="$total" 'BEGIN{printf "%.1f/%.1f GB", a/1073741824, b/1073741824}')"
+  if [ "$room" -ge $(( 16 + 6 + ${#gb} )) ]; then printf '%s %3d%% %s' "$bar" "$pct" "$gb"
+  elif [ "$room" -ge 21 ]; then printf '%s %3d%%' "$bar" "$pct"
+  else printf '%d%%' "$pct"; fi
 }
 
 # card "Title" "line" ... : a rounded box; lines may contain color codes (width is measured without them)
@@ -345,9 +347,9 @@ task() {
   printf '%s' "${ESC}[?25l"
   while kill -0 "$pid" 2>/dev/null; do
     if [ $((tick % 5)) = 0 ]; then
-      detail=$(progress_bar || true)
+      room=$(( COLS - ${#label} - 18 )); [ "$room" -lt 0 ] && room=0   # the spinner line may use the full width
+      detail=$(progress_bar "$room" || true)
       [ -n "$detail" ] || detail=$(last_log_line || true)
-      room=$(( W - ${#label} - 16 )); [ "$room" -lt 0 ] && room=0
       detail=$(printf '%s' "$detail" | sed 's/^[[:space:]]*//' 2>/dev/null | cut -c1-"$room" 2>/dev/null)
     fi
     printf '\r%s  %s%s%s %s %s%s%s %s%s' "${ESC}[K" "$ORANGE" "${frames:f:1}" "$R" "$label" \
