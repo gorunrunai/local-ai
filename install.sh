@@ -338,6 +338,7 @@ confirm() {
 
 elapsed() { local s=$1; printf '%d:%02d' $((s / 60)) $((s % 60)); }
 
+TASK_SOFT=0   # set to 1 around a task whose failure the install can continue without
 # task "Label" command... : runs quietly with a spinner and live status; output goes to $LOG
 task() {
   local label=$1; shift
@@ -347,6 +348,7 @@ task() {
   if [ "$FANCY" = 0 ]; then
     printf '  … %s\n' "$label"
     if "$@" >>"$LOG" 2>&1; then ok "$label ($(elapsed $(( $(date +%s) - start ))))"; return; fi
+    if [ "$TASK_SOFT" = 1 ]; then printf '  ✗ %s\n' "$label"; return 1; fi
     die "$label failed. The full log is in $LOG" \
       "$(awk '/^=== /{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$LOG" | tail -n 25 | sed 's/^/      /')"
   fi
@@ -371,7 +373,9 @@ task() {
   if [ "$rc" = 0 ]; then
     printf '  %s✓%s %s %s%s%s\n' "$GREEN" "$R" "$label" "$D" "$(elapsed $(( $(date +%s) - start )))" "$R"
   else
-    printf '  %s✗ %s%s\n\n' "$RED$B" "$label" "$R"
+    printf '  %s✗ %s%s\n' "$RED$B" "$label" "$R"
+    if [ "$TASK_SOFT" = 1 ]; then return 1; fi
+    echo
     local tail_lines   # this step's own output only (the log also holds earlier runs)
     tail_lines=$(awk '/^=== /{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$LOG" \
       | strip_ansi | LC_ALL=C tr '\r' '\n' | LC_ALL=C grep -a -v '^[[:space:]]*$' | tail -n 20 \
@@ -694,17 +698,48 @@ if [ -n "$VIDEO_IDS" ]; then
   task "Downloading video models ($video_size)" make models-video VIDEO="$VIDEO_IDS"
 fi
 osascript -e 'quit app "GoRunRun Local AI"' >/dev/null 2>&1 || true
-task "Installing the GoRunRun Local AI app" make desktop-install
+# The Mac app is compiled here, with Apple's command line tools. If that fails, everything else still
+# works in the browser: set up the background service without the app and start it.
+APP_OK=1
+TASK_SOFT=1; task "Installing the GoRunRun Local AI app" make desktop-install || APP_OK=0; TASK_SOFT=0
+AGENT="gui/$(id -u)/ai.gorunrun.local"
+if [ "$APP_OK" = 0 ]; then
+  app_log=$(awk '/^=== /{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$LOG")
+  wait_for_backend() {
+    launchctl kickstart "$AGENT"
+    for _ in $(seq 1 120); do curl -fs -o /dev/null http://127.0.0.1:8000/api/health && return 0; sleep 1; done
+    echo "The backend didn't answer within 2 minutes; see $HOME_DIR/data/logs/backend.log"; return 1
+  }
+  task "Setting up the background service" ./scripts/install-agent.sh
+  task "Starting GoRunRun Local AI" wait_for_backend
+fi
 touch "$HOME_DIR/.install-complete"
 
 # --- 5. done ----------------------------------------------------------------------------------------
-ready=$(card "${GREEN}✓${R}${B} GoRunRun Local AI is ready${R}" \
-  "$(lab "Open")GoRunRun Local AI in Applications (opening now)" \
-  "$(lab "Browser")http://127.0.0.1:8000 while the app is open" \
-  "$(lab "Guides")https://local.gorunrun.ai" \
-  "$(lab "Update")run this installer again" \
-  "$(lab "Uninstall")add ${B}--uninstall${R} to the install command")
+if [ "$APP_OK" = 1 ]; then
+  ready=$(card "${GREEN}✓${R}${B} GoRunRun Local AI is ready${R}" \
+    "$(lab "Open")GoRunRun Local AI in Applications (opening now)" \
+    "$(lab "Browser")http://127.0.0.1:8000 while the app is open" \
+    "$(lab "Guides")https://local.gorunrun.ai" \
+    "$(lab "Update")run this installer again" \
+    "$(lab "Uninstall")add ${B}--uninstall${R} to the install command")
+else
+  if printf '%s' "$app_log" | grep -q -e "SDK is not supported by the compiler" -e "redefinition of module 'SwiftBridging'"; then
+    why=("Apple's command line tools on this Mac are damaged, so the Mac" "app couldn't be built. To fix them, run in Terminal:"
+         "  sudo rm -rf /Library/Developer/CommandLineTools" "  xcode-select --install")
+  else
+    why=("The Mac app couldn't be built (details in ~/.gorunrun/install.log).")
+  fi
+  ready=$(card "${GREEN}✓${R}${B} GoRunRun Local AI is ready, in your browser${R}" \
+    "$(lab "Open")http://127.0.0.1:8000 (opening now)" \
+    "$(lab "Start")launchctl kickstart $AGENT" \
+    "$(lab "")${D}(after a restart or log out; it keeps running until then)${R}" \
+    "$(lab "Stop")launchctl kill TERM $AGENT" \
+    "$(lab "Guides")https://local.gorunrun.ai" \
+    "$(lab "Uninstall")add ${B}--uninstall${R} to the install command" \
+    "" "${why[@]}" "Then run this installer again to add the Mac app.")
+fi
 printf '\n%s\n' "$ready"
-open "$APP"
+if [ "$APP_OK" = 1 ]; then open "$APP"; else open http://127.0.0.1:8000; fi
 close_session
 keep "$(printf '\n%s\n' "$ready")"
