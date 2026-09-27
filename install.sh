@@ -17,6 +17,7 @@
 #
 # Environment: GORUNRUN_HOME (install folder, default ~/.gorunrun/local),
 #              GORUNRUN_REPO (git URL or local path to install from), GORUNRUN_BRANCH (default main),
+#              GORUNRUN_APP_RELEASE (GitHub release with the pre-built Mac app, default mac-app),
 #              NO_COLOR (plain output).
 #
 # Written for the bash 3.2 that ships with macOS: no dependencies beyond the base system.
@@ -698,10 +699,15 @@ if [ -n "$VIDEO_IDS" ]; then
   task "Downloading video models ($video_size)" make models-video VIDEO="$VIDEO_IDS"
 fi
 osascript -e 'quit app "GoRunRun Local AI"' >/dev/null 2>&1 || true
-# The Mac app is compiled here, with Apple's command line tools. If that fails, everything else still
-# works in the browser: set up the background service without the app and start it.
+# The Mac app comes pre-built from GitHub; if it can't be downloaded (or this installs from a local
+# folder, whose app may have changed) it's compiled here with Apple's command line tools. If that
+# fails too, everything else still works in the browser: set up the background service and start it.
+install_app() {
+  if [ -z "${GORUNRUN_REPO:-}" ] && make desktop-download; then make desktop-install-app
+  else echo "(building the app on this Mac)"; make desktop-install; fi
+}
 APP_OK=1
-TASK_SOFT=1; task "Installing the GoRunRun Local AI app" make desktop-install || APP_OK=0; TASK_SOFT=0
+TASK_SOFT=1; task "Installing the GoRunRun Local AI app" install_app || APP_OK=0; TASK_SOFT=0
 AGENT="gui/$(id -u)/ai.gorunrun.local"
 if [ "$APP_OK" = 0 ]; then
   app_log=$(awk '/^=== /{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$LOG")

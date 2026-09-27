@@ -3,7 +3,7 @@ UV ?= uv
 LLAMA_SWAP_VERSION := 257
 LLAMA_SWAP_URL := https://github.com/mostlygeek/llama-swap/releases/download/v$(LLAMA_SWAP_VERSION)/llama-swap_$(LLAMA_SWAP_VERSION)_darwin_arm64.tar.gz
 
-.PHONY: help setup deps system-deps llama-swap models models-all video-setup models-video search-setup desktop desktop-install desktop-uninstall install-app app-frontend fixtures dev backend frontend-deps build test-e2e remote remote-off chat \
+.PHONY: help setup deps system-deps llama-swap models models-all video-setup models-video search-setup desktop desktop-download desktop-install desktop-install-app desktop-uninstall install-app app-frontend fixtures dev backend frontend-deps build test-e2e remote remote-off chat \
         test test-integration bench bench-voice lint clean-cache gpu-limit status
 
 help:
@@ -61,7 +61,15 @@ APPS_DIR := $(shell [ -w /Applications ] && echo /Applications || echo $(HOME)/A
 desktop:
 	./desktop/build.sh
 
+# The same app, built on GitHub (.github/workflows/mac-app.yml): no Swift compiler needed here.
+desktop-download:
+	./scripts/download-app.sh
+
 desktop-install: desktop
+	$(MAKE) --no-print-directory desktop-install-app
+
+# Install the app already in desktop/build (from `make desktop` or `make desktop-download`).
+desktop-install-app:
 	./scripts/install-agent.sh
 	mkdir -p "$(APPS_DIR)" && rm -rf "$(APPS_DIR)/GoRunRun Local AI.app"
 	cp -R "desktop/build/GoRunRun Local AI.app" "$(APPS_DIR)/"
