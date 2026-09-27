@@ -1,0 +1,53 @@
+name: Mac app
+
+# Builds the Mac app (desktop/) on a GitHub macOS runner and publishes it as a release asset, so
+# the installer can download it instead of compiling it with the Mac's own command line tools.
+# The app is a thin window around the web app and holds no backend code, so one build serves
+# every install. Pushes to main that change it update the rolling "mac-app" release; pushes to
+# other branches publish to the "mac-app-test" pre-release, for trying a change before merging
+# (install with GORUNRUN_APP_RELEASE=mac-app-test). It can also be run by hand from the Actions tab.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - desktop/**
+      - assets/brand/app/**
+      - .github/workflows/mac-app.yml
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release to publish to (the installer uses "mac-app"; anything else is a pre-release for testing)
+        default: mac-app
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish the Mac app
+    runs-on: macos-15
+    env:
+      RELEASE: ${{ inputs.release || (github.ref_name == 'main' && 'mac-app') || 'mac-app-test' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./desktop/build.sh
+      - name: Package
+        run: |
+          cd desktop/build
+          ditto -c -k --keepParent "GoRunRun Local AI.app" GoRunRun-Local-AI.zip
+          shasum -a 256 GoRunRun-Local-AI.zip | cut -d' ' -f1 > GoRunRun-Local-AI.zip.sha256
+          cat GoRunRun-Local-AI.zip.sha256
+      - name: Publish
+        run: |
+          notes="Built from ${GITHUB_SHA} (${GITHUB_REF_NAME}) by the Mac app workflow. The installer downloads this; nothing to do by hand."
+          if [ "$RELEASE" = mac-app ]; then pre=""; else pre="--prerelease"; fi
+          if ! gh release view "$RELEASE" >/dev/null 2>&1; then
+            gh release create "$RELEASE" --target "$GITHUB_SHA" --title "Mac app ($RELEASE)" --notes "$notes" $pre
+          else
+            gh release edit "$RELEASE" --notes "$notes"
+          fi
+          gh release upload "$RELEASE" --clobber \
+            desktop/build/GoRunRun-Local-AI.zip desktop/build/GoRunRun-Local-AI.zip.sha256
