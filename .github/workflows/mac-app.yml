@@ -3,12 +3,13 @@ name: Mac app
 # Builds the Mac app (desktop/) on a GitHub macOS runner and publishes it as a release asset, so
 # the installer can download it instead of compiling it with the Mac's own command line tools.
 # The app is a thin window around the web app and holds no backend code, so one build serves
-# every install. Pushes to main that change it update the rolling "mac-app" release; run it by
-# hand (Actions → Mac app → Run workflow) to publish a test build under another release name.
+# every install. Pushes to main that change it update the rolling "mac-app" release; pushes to
+# other branches publish to the "mac-app-test" pre-release, for trying a change before merging
+# (install with GORUNRUN_APP_RELEASE=mac-app-test). It can also be run by hand from the Actions tab.
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
     paths:
       - desktop/**
       - assets/brand/app/**
@@ -28,7 +29,7 @@ jobs:
     name: Build and publish the Mac app
     runs-on: macos-15
     env:
-      RELEASE: ${{ inputs.release || 'mac-app' }}
+      RELEASE: ${{ inputs.release || (github.ref_name == 'main' && 'mac-app') || 'mac-app-test' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
