@@ -49,6 +49,7 @@ DEFAULT_PREFS: dict = {
     "max_tokens": 4096,
     "context_tokens": None,        # None = model's context_length
     "video_frame_budget": 24,
+    "video_max_seconds": {},       # video model id -> longest clip in seconds (missing = models.yaml)
     "tool_overrides": {},          # tool name -> {"enabled": bool, "policy": "allow|confirm|deny"}
     "locale": "en-US",
     "timezone": None,              # None = system timezone

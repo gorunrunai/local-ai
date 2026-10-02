@@ -12,6 +12,7 @@ from pathlib import Path
 
 from inference.manager import ModelManager
 from inference.types import ChatRequest, TextDelta
+from inference.video import apply_length_settings
 from media.cache import MediaCache
 from media.router import ModalityRouter, RouteOptions
 from media.types import ContextBlock, Kind, Progress
@@ -111,6 +112,7 @@ class AppState:
         stt = (prefs.get("voice") or {}).get("stt")
         if stt in self.manager.cfg.stt:
             self.manager.cfg.defaults.stt = stt
+        apply_length_settings(self.manager.cfg, prefs.get("video_max_seconds"))
 
     def spawn(self, coro) -> None:
         task = asyncio.create_task(coro)

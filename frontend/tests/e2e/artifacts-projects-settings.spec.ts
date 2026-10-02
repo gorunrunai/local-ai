@@ -136,7 +136,7 @@ test("projects: knowledge file answers questions only inside the project", async
 test("settings: memory viewer add / edit / delete", async ({ page }) => {
   await page.goto("/settings/memory");
   await page.getByRole("textbox", { name: "New memory" }).fill("My favourite colour is teal.");
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   const list = page.getByTestId("memory-list");
   await expect(list).toContainText("My favourite colour is teal.");
   const row = list.locator("li", { hasText: "teal" });

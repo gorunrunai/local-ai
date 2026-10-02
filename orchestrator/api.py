@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from inference.types import ChatRequest, TextDelta
+from inference.video import length_limit
 from media.detect import detect_kind
 from media.types import Attachment
 from orchestrator.chat import AppState, ChatService, TurnRequest
@@ -492,6 +493,17 @@ async def patch_settings(body: dict[str, Any], request: Request) -> dict:
     unknown = set(body) - set(DEFAULT_PREFS)
     if unknown:
         raise HTTPException(400, f"unknown settings: {sorted(unknown)}")
+    if "video_max_seconds" in body:
+        chosen = body["video_max_seconds"]
+        if not isinstance(chosen, dict):
+            raise HTTPException(400, "video_max_seconds must map video model ids to seconds")
+        for vid, secs in chosen.items():
+            spec = s.manager.cfg.video.get(vid)
+            if spec is None:
+                raise HTTPException(400, f"unknown video model {vid!r}")
+            limit = length_limit(spec, s.manager.cfg.memory_budget_gb)
+            if isinstance(secs, bool) or not isinstance(secs, (int, float)) or not 1 <= secs <= limit:
+                raise HTTPException(400, f"{spec.display_name}: choose 1 to {limit:g} seconds")
     if "voice" in body:
         stt = (body["voice"] or {}).get("stt")
         if stt and stt not in s.manager.cfg.stt:

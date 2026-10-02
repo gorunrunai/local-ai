@@ -58,13 +58,15 @@ class GenerateVideo(Tool):
 
     def __init__(self, cfg: ModelsConfig | None = None):
         self.cfg = cfg or get_config()
+
+    def _models(self) -> dict:
         # Offer only the engines this Mac has installed (install.sh can install either or both).
-        models = {mid: s for mid, s in self.cfg.video.items() if installed(s)[0]} or dict(self.cfg.video)
-        default = self.cfg.defaults.video if self.cfg.defaults.video in models else next(iter(models), None)
-        max_s = max((s.max_seconds for s in models.values()), default=8)
-        lines = [f"{mid}: {s.display_name}, up to {s.max_seconds:g}s"
-                 + (" (also generates matching sound)" if s.audio else "") for mid, s in models.items()]
-        self.description = (
+        return {mid: s for mid, s in self.cfg.video.items() if installed(s)[0]} or dict(self.cfg.video)
+
+    # Built on each use, not once: Settings → Video generation can change each model's longest clip.
+    @property
+    def description(self) -> str:
+        return (
             "Create a short video clip (a few seconds), rendered locally on this Mac, from a text description "
             "or by animating a photo attached to this chat. Use it whenever the user asks for a video, clip or "
             "animation. Photos of people work: pass the photo in `image` and it becomes the first frame, so "
@@ -75,13 +77,23 @@ class GenerateVideo(Tool):
             "lighting and style; when animating a photo, describe what is in it and what should happen; for "
             "models with sound, describe the sounds and any speech. When animating a photo of a person, use about 5 "
             "seconds unless the user asks for a length: longer clips drift away from the person's likeness. "
+            "The longest clip each model can make is set by the user in Settings; if they ask for longer, make "
+            "the longest allowed and tell them they can raise the limit in Settings → Models → Video generation. "
             "Rendering takes one to several minutes; "
             "the clip is shown to the user when done. Call it once per clip; you will not see the result.")
-        self.parameters = {"type": "object", "properties": {
+
+    @property
+    def parameters(self) -> dict:
+        models = self._models()
+        default = self.cfg.defaults.video if self.cfg.defaults.video in models else next(iter(models), None)
+        max_s = max((s.max_seconds for s in models.values()), default=8)
+        lines = [f"{mid}: {s.display_name}, up to {s.max_seconds:g}s"
+                 + (" (also generates matching sound)" if s.audio else "") for mid, s in models.items()]
+        return {"type": "object", "properties": {
             "prompt": {"type": "string", "description": "Detailed description of the clip"},
             "model": {"type": "string", "enum": list(models), "default": default,
                       "description": "; ".join(lines) + ". Use a model with sound whenever someone should speak."},
-            "seconds": {"type": "number", "minimum": 1, "maximum": max_s, "default": 4},
+            "seconds": {"type": "number", "minimum": 1, "maximum": max_s, "default": min(4, max_s)},
             "aspect": {"type": "string", "enum": ["landscape", "portrait", "square"], "default": "landscape",
                        "description": "Ignored when animating a photo: the clip follows the photo's shape"},
             "image": {"type": "string", "description": "File name or id of an image attached to this chat to "
