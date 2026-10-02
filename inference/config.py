@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 ROOT = Path(__file__).resolve().parent.parent
 # Models this app converts itself (Wan 2.2 to MLX) live next to the Hugging Face cache, outside the
@@ -71,14 +71,50 @@ class VideoSpec(BaseModel):
     extra_repos: list[tuple[str, list[str] | None]] = Field(default_factory=list)  # text encoder, tokenizer
     text_encoder: str | None = None            # LTX: Gemma repo used for prompt encoding
     convert_to: str | None = None              # Wan: MLX copy made at download, relative to MODEL_CACHE
-    est_memory_gb: float
+    est_memory_gb: float                       # peak while rendering a clip of `est_seconds`
+    est_seconds: float = 4
+    memory_gb_per_s: float = 0.0               # extra peak memory per second beyond `est_seconds`
+    est_render_s: float | None = None          # render time for a clip of `est_seconds`
+    render_s_per_s: float | None = None        # extra render time per second beyond `est_seconds`
     fps: int = 24
     frame_step: int = 8                        # valid frame counts are 1 + k * frame_step
-    max_seconds: float = 8
+    max_seconds: float = 8                     # longest clip; Settings can change it (video_max_seconds)
+    tested_seconds: float | None = None        # longest clip length tested for quality
+    settable_max_seconds: float | None = None  # how far Settings may raise max_seconds (None = no higher)
     steps: int | None = None                   # None = engine default
     sizes: dict[str, tuple[int, int]] = Field(default_factory=dict)  # aspect -> (width, height)
     audio: bool = False                        # generates a synchronized soundtrack
     image_input: bool = True                   # can animate a still image
+    _default_max_seconds: float = PrivateAttr(default=0.0)
+
+    def model_post_init(self, context, /) -> None:
+        self._default_max_seconds = self.max_seconds
+
+    @property
+    def default_max_seconds(self) -> float:
+        """max_seconds as configured, before any Settings change."""
+        return self._default_max_seconds
+
+    @property
+    def length_ceiling(self) -> float:
+        """The longest max_seconds Settings may choose."""
+        return max(self.settable_max_seconds or 0, self._default_max_seconds)
+
+    def memory_gb(self, seconds: float) -> float:
+        """Estimated peak memory for a clip of this length."""
+        return round(self.est_memory_gb + self.memory_gb_per_s * max(0.0, seconds - self.est_seconds), 1)
+
+    def planned_gb(self, seconds: float) -> float:
+        """Memory to make room for before rendering. Up to the configured length this stays
+        est_memory_gb, as it always has (macOS absorbs the rest of the peak, and the chat model stays
+        loaded); longer clips, allowed in Settings, add the measured growth on top."""
+        return round(self.est_memory_gb + self.memory_gb_per_s * max(0.0, seconds - self._default_max_seconds), 1)
+
+    def render_s(self, seconds: float) -> float | None:
+        """Estimated render time for a clip of this length (None when unknown)."""
+        if self.est_render_s is None:
+            return None
+        return round(self.est_render_s + (self.render_s_per_s or 0) * max(0.0, seconds - self.est_seconds))
 
 
 class ProxySpec(BaseModel):

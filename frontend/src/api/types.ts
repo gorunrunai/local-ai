@@ -130,6 +130,12 @@ export interface VideoModel {
   reason: string;
   est_memory_gb: number;
   max_seconds: number;
+  default_max_seconds: number;
+  settable_max_seconds: number;   // the longest Settings may choose on this Mac (memory budget)
+  ceiling_seconds: number;        // the longest the model allows at all
+  tested_seconds: number | null;
+  unloads_chat_from_seconds: number | null;  // clips this long unload the chat model while rendering
+  estimate: { base_seconds: number; base_gb: number; gb_per_s: number; base_render_s: number | null; render_s_per_s: number | null };
   audio: boolean;
   image_input: boolean;
   default: boolean;

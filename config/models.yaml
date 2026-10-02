@@ -116,10 +116,18 @@ video:
             "vae_decoder.safetensors", "vae_encoder.safetensors", "vocoder.safetensors"]
     text_encoder: mlx-community/gemma-3-12b-it-4bit
     extra_repos: [["mlx-community/gemma-3-12b-it-4bit", null]]
-    est_memory_gb: 17             # measured peak 15.9 GB for 4 s at 768x512
+    # Measured peaks at 640x640 (512x768 the same): 18.6-18.8 GB for 5 s, 22.1 GB for 8 s, 24.4 GB
+    # for 10 s; render times 58-60 s, 104 s and 130 s (M-series Max, 64 GB).
+    est_memory_gb: 18.8
+    est_seconds: 5
+    memory_gb_per_s: 1.15
+    est_render_s: 60
+    render_s_per_s: 14
     fps: 24
     frame_step: 8                # 1 + 8k frames
     max_seconds: 10
+    tested_seconds: 10
+    settable_max_seconds: 20     # Settings may go this far; past 10 s is untested
     sizes: {landscape: [768, 512], portrait: [512, 768], square: [640, 640]}
     audio: true
   wan-2.2-5b:
@@ -130,9 +138,12 @@ video:
     extra_repos: [["google/umt5-xxl", ["config.json", "tokenizer*", "spiece.model", "special_tokens_map.json"]]]
     convert_to: video/wan2.2-ti2v-5b-mlx   # in ~/.cache/gorunrun/models (kept on uninstall)
     est_memory_gb: 32             # measured peak 31.2 GB (VAE decode) for 4 s at 960x544
+    est_seconds: 4
+    est_render_s: 420            # about 7 minutes for 4 s (see steps)
     fps: 24
     frame_step: 4                # 1 + 4k frames
-    max_seconds: 5
+    max_seconds: 5               # trained on 5 s clips; Settings can lower it, not raise it
+    tested_seconds: 4
     steps: 25                    # engine default 40; 25 UniPC steps keep a 4 s clip near 7 minutes
     # Trained at 1280x704, but at that size a 4 s clip takes well over 10 minutes here.
     sizes: {landscape: [960, 544], portrait: [544, 960], square: [704, 704]}

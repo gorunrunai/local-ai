@@ -9,6 +9,8 @@ import { useChat } from "../store/chat";
 import { useUi, type Theme } from "../store/ui";
 import { Markdown, useCopy } from "./Markdown";
 import { SetupSummary } from "./SetupSummary";
+import { Slider } from "./Slider";
+import { VideoLength } from "./VideoLength";
 import { ConfirmDialog } from "./Modal";
 import { useWebAccess } from "./WebAccessSwitch";
 import { refreshCapabilities } from "../lib/capabilities";
@@ -22,6 +24,7 @@ interface Prefs {
   max_tokens: number;
   context_tokens: number | null;
   video_frame_budget: number;
+  video_max_seconds: Record<string, number>;
   locale: string;
   timezone: string | null;
   voice: { stt: string; tts_voice: string; speed: number; vad_sensitivity: number; push_to_talk_key: string };
@@ -57,16 +60,6 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
-function Slider({ label, value, min, max, step, onChange, format }: {
-  label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; format?: (v: number) => string;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="flex justify-between"><span>{label}</span><span className="font-mono text-xs text-muted">{format ? format(value) : value}</span></span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="mt-1 w-full accent-[var(--accent)]" />
-    </label>
-  );
-}
 
 function useSaved() {
   const [saved, setSaved] = useState(false);
@@ -318,15 +311,17 @@ function Models({ prefs, save }: { prefs: Prefs; save: (p: Partial<Prefs>) => Pr
       </Section>
       {status?.video && status.video.some((m) => m.installed) && (
         <Section title="Video generation" desc="Ask in any chat, e.g. “make a 4-second video of a fox running through snow”. Name a model to choose it; attach an image to animate it.">
-          <ul className="space-y-2 text-sm" data-testid="video-models">
+          <ul className="space-y-4 text-sm" data-testid="video-models">
             {/* Only engines this Mac has; the installer adds others (run it again to choose). */}
             {status.video.filter((m) => m.installed).map((m) => (
-              <li key={m.id} className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-medium">{m.display_name}</span>
-                {m.default && <span className="rounded bg-accent-soft px-1.5 text-xs text-accent">default</span>}
-                <span className="text-xs text-faint">
-                  up to {m.max_seconds}s · ~{m.est_memory_gb} GB while rendering{m.audio ? " · with sound" : ""}
-                </span>
+              <li key={m.id} className="space-y-2">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-medium">{m.display_name}</span>
+                  {m.default && <span className="rounded bg-accent-soft px-1.5 text-xs text-accent">default</span>}
+                  {m.audio && <span className="text-xs text-faint">with sound</span>}
+                </div>
+                <VideoLength model={m} status={status} lengths={prefs.video_max_seconds ?? {}}
+                  save={(lengths) => save({ video_max_seconds: lengths })} />
               </li>
             ))}
           </ul>

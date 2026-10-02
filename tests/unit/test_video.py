@@ -270,3 +270,127 @@ def test_tool_offers_only_installed_engines(cfg, monkeypatch):
     monkeypatch.setattr(video_gen, "installed", lambda spec: (True, ""))
     model = video_gen.GenerateVideo(cfg).parameters["properties"]["model"]
     assert model["enum"] == ["ltx-2.3", "wan-2.2-5b"] and model["default"] == "ltx-2.3"
+
+
+# --- Settings → Video generation: the longest clip ------------------------------------------------
+@pytest.fixture
+def own_cfg(cfg):
+    """A private copy: these tests change max_seconds, which get_config() shares with other tests."""
+    return cfg.model_copy(deep=True)
+
+
+def test_estimates_match_measured_renders(cfg):
+    ltx = cfg.video["ltx-2.3"]
+    # Measured on a 64 GB Mac at 640x640: 18.8 GB / ~59 s (5 s), 22.1 / 104 (8 s), 24.4 / 130 (10 s).
+    for secs, gb, render in [(5, 18.8, 59), (8, 22.1, 104), (10, 24.4, 130)]:
+        assert abs(ltx.memory_gb(secs) - gb) <= 0.3 and abs(ltx.render_s(secs) - render) <= 5
+    assert ltx.memory_gb(2) == ltx.est_memory_gb          # shorter clips: no less than measured
+    assert cfg.video["wan-2.2-5b"].render_s(4) == 420
+
+
+def test_length_setting_applies_within_limits(own_cfg):
+    ltx, wan = own_cfg.video["ltx-2.3"], own_cfg.video["wan-2.2-5b"]
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 15, "wan-2.2-5b": 3})
+    assert ltx.max_seconds == 15 and wan.max_seconds == 3
+    assert frame_count(ltx, 15) == 361                    # longer clips are rendered, not clamped to 10
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 99, "wan-2.2-5b": 9})
+    assert ltx.max_seconds == 20 and wan.max_seconds == 5  # the model's ceiling; Wan can't go past 5
+    video.apply_length_settings(own_cfg, {})               # removed from Settings: back to models.yaml
+    assert ltx.max_seconds == ltx.default_max_seconds == 10 and wan.max_seconds == 5
+    video.apply_length_settings(own_cfg, {"ltx-2.3": True})  # junk is ignored
+    assert ltx.max_seconds == 10
+
+
+def test_memory_budget_limits_the_setting(own_cfg):
+    ltx = own_cfg.video["ltx-2.3"]
+    assert video.length_limit(ltx, 45) == 20               # 20 s needs ~36 GB
+    assert video.length_limit(ltx, 30) == 14               # 14 s ~29.2 GB fits, 15 s ~30.3 GB doesn't
+    assert video.length_limit(ltx, 20) == 10               # never below the configured default
+    own_cfg.memory_budget_gb = 30
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 20})
+    assert ltx.max_seconds == 14
+
+
+async def test_longer_clips_reserve_more_memory(own_cfg, monkeypatch, tmp_path):
+    monkeypatch.setattr(video, "installed", lambda spec: (True, ""))
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 20})
+    m = _Manager(own_cfg, [], [])
+    gen = VideoGenerator(m)  # type: ignore[arg-type]
+    asked = []
+
+    async def make_room(need):
+        asked.append(need)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(gen, "make_room", make_room)
+    with pytest.raises(RuntimeError):
+        await gen.generate(VideoJob("x", "ltx-2.3", seconds=20), tmp_path)
+    ltx = own_cfg.video["ltx-2.3"]
+    assert asked == [ltx.planned_gb(20)] and asked[0] == ltx.est_memory_gb + 10 * ltx.memory_gb_per_s
+    own_cfg.memory_budget_gb = 30                          # a smaller Mac: refuse rather than swap
+    with pytest.raises(video.VideoUnavailable, match="more than this Mac's memory budget"):
+        await gen.generate(VideoJob("x", "ltx-2.3", seconds=20), tmp_path)
+
+
+def test_default_length_keeps_the_chat_model_loaded(own_cfg):
+    """Up to the configured length, planning is as before: a 10 s LTX clip fits next to Qwen in a
+    64 GB Mac's 44 GB budget. Longer clips, chosen in Settings, make room by unloading it."""
+    own_cfg.memory_budget_gb = 44
+    gen = VideoGenerator(_Manager(own_cfg, [], []))  # type: ignore[arg-type]
+    ltx = own_cfg.video["ltx-2.3"]
+    assert ltx.planned_gb(4) == ltx.planned_gb(10) == ltx.est_memory_gb
+    assert gen.unloads_chat_from(ltx) == 11
+    assert gen.unloads_chat_from(own_cfg.video["wan-2.2-5b"]) == 1      # 32 GB never fits next to it
+    row = next(r for r in gen.status() if r["id"] == "ltx-2.3")
+    assert (row["default_max_seconds"], row["settable_max_seconds"], row["unloads_chat_from_seconds"]) == (10, 20, 11)
+
+
+def test_tool_tells_the_model_the_current_limit(own_cfg, monkeypatch):
+    from orchestrator.tools import video_gen
+
+    monkeypatch.setattr(video_gen, "installed", lambda spec: (True, ""))
+    tool = video_gen.GenerateVideo(own_cfg)
+    assert tool.parameters["properties"]["seconds"]["maximum"] == 10
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 18})   # changed in Settings, no restart
+    params = tool.parameters["properties"]
+    assert params["seconds"]["maximum"] == 18 and "ltx-2.3: LTX-2.3 22B distilled (4-bit) · video + sound, up to 18s" in params["model"]["description"]
+    assert "Settings → Models → Video generation" in tool.description
+    video.apply_length_settings(own_cfg, {"ltx-2.3": 2, "wan-2.2-5b": 2})
+    assert tool.parameters["properties"]["seconds"] == {"type": "number", "minimum": 1, "maximum": 2, "default": 2}
+
+
+async def test_settings_api_checks_video_lengths(own_cfg):
+    from fastapi import HTTPException
+
+    from orchestrator import api
+
+    class Persistent:
+        def __init__(self):
+            self.saved = {}
+
+        async def get_setting(self, key, default=None):
+            return self.saved.get(key, default)
+
+        async def set_setting(self, key, value):
+            self.saved[key] = value
+
+    applied = []
+
+    class State:
+        manager = SimpleNamespace(cfg=own_cfg)
+        persistent = Persistent()
+
+        async def prefs(self):
+            return {**api.DEFAULT_PREFS, **self.persistent.saved.get("prefs", {})}
+
+        def apply_prefs(self, prefs):
+            applied.append(prefs["video_max_seconds"])
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(app_state=State())))
+    out = await api.patch_settings({"video_max_seconds": {"ltx-2.3": 15}}, request)  # type: ignore[arg-type]
+    assert out["video_max_seconds"] == {"ltx-2.3": 15} and applied == [{"ltx-2.3": 15}]
+    for bad, why in [({"ltx-2.3": 21}, "choose 1 to 20 seconds"), ({"ltx-2.3": 0}, "choose 1 to 20"),
+                     ({"wan-2.2-5b": 6}, "choose 1 to 5"), ({"sora": 5}, "unknown video model"),
+                     ({"ltx-2.3": "15"}, "choose 1 to 20"), ([15], "must map")]:
+        with pytest.raises(HTTPException, match=why):
+            await api.patch_settings({"video_max_seconds": bad}, request)  # type: ignore[arg-type]

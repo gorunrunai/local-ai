@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from inference.config import MODEL_CACHE, ROOT, VideoSpec
+from inference.config import MODEL_CACHE, ROOT, ModelsConfig, VideoSpec
 from inference.memory import tree_footprint
 
 if TYPE_CHECKING:
@@ -80,6 +80,32 @@ def frame_count(spec: VideoSpec, seconds: float) -> int:
     seconds = min(max(seconds, 1.0), spec.max_seconds)
     k = max(1, round(seconds * spec.fps / spec.frame_step))
     return 1 + k * spec.frame_step
+
+
+def clip_seconds(spec: VideoSpec, seconds: float) -> float:
+    """How long the rendered clip will actually be for a requested length."""
+    return (frame_count(spec, seconds) - 1) / spec.fps
+
+
+def length_limit(spec: VideoSpec, budget_gb: float) -> float:
+    """The longest max_seconds Settings may choose: up to the model's ceiling, but not longer than
+    fits in the memory budget on its own (the configured default is always allowed)."""
+    best = spec.default_max_seconds
+    s = int(spec.default_max_seconds) + 1
+    while s <= spec.length_ceiling and spec.memory_gb(s) <= budget_gb:
+        best = float(s)
+        s += 1
+    return best
+
+
+def apply_length_settings(cfg: ModelsConfig, chosen: dict | None) -> None:
+    """Settings → Video generation: each model's longest clip (video_max_seconds pref)."""
+    for vid, spec in cfg.video.items():
+        value = (chosen or {}).get(vid)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            spec.max_seconds = float(min(max(value, 1), length_limit(spec, cfg.memory_budget_gb)))
+        else:
+            spec.max_seconds = spec.default_max_seconds
 
 
 def _local_snapshot(repo: str, patterns: list[str] | None) -> Path | None:
@@ -185,12 +211,31 @@ class VideoGenerator:
             raise VideoUnavailable(f"unknown video model {key!r}; known: {sorted(self.cfg.video)}")
         return self.cfg.video[key]
 
+    def unloads_chat_from(self, spec: VideoSpec) -> float | None:
+        """The shortest clip length (whole seconds) for which make_room unloads the chat model."""
+        chat = self.cfg.llms.get(self.cfg.defaults.llm)
+        if chat is None:
+            return None
+        chat_gb = chat.est_memory_gb + chat.prefix_cache_gb
+        for s in range(1, int(spec.length_ceiling) + 1):
+            if spec.planned_gb(s) + chat_gb > self.cfg.memory_budget_gb:
+                return float(s)
+        return None
+
     def status(self) -> list[dict]:
         out = []
         for vid, spec in self.cfg.video.items():
             ok, why = installed(spec)
             out.append({"id": vid, "display_name": spec.display_name, "installed": ok, "reason": why,
-                        "est_memory_gb": spec.est_memory_gb, "max_seconds": spec.max_seconds,
+                        "est_memory_gb": spec.memory_gb(spec.max_seconds), "max_seconds": spec.max_seconds,
+                        # For Settings → Video generation: the length setting and its estimates.
+                        "default_max_seconds": spec.default_max_seconds,
+                        "settable_max_seconds": length_limit(spec, self.cfg.memory_budget_gb),
+                        "ceiling_seconds": spec.length_ceiling, "tested_seconds": spec.tested_seconds,
+                        "unloads_chat_from_seconds": self.unloads_chat_from(spec),
+                        "estimate": {"base_seconds": spec.est_seconds, "base_gb": spec.est_memory_gb,
+                                     "gb_per_s": spec.memory_gb_per_s, "base_render_s": spec.est_render_s,
+                                     "render_s_per_s": spec.render_s_per_s},
                         "sizes": spec.sizes, "audio": spec.audio, "image_input": spec.image_input,
                         "default": vid == self.cfg.defaults.video,
                         "running": bool(self.active and self.active["model"] == vid)})
@@ -244,9 +289,15 @@ class VideoGenerator:
 
         if self._lock.locked():
             await report({"stage": "Waiting for the current video to finish"})
+        secs = clip_seconds(spec, job.seconds)
+        if spec.memory_gb(secs) > self.cfg.memory_budget_gb:
+            raise VideoUnavailable(
+                f"a {secs:g}-second clip needs about {spec.memory_gb(secs):g} GB, more than this Mac's memory "
+                f"budget ({self.cfg.memory_budget_gb:g} GB); make a shorter clip")
+        need = spec.planned_gb(secs)                             # longer clips need more room
         async with self._lock:
-            unloaded = await self.make_room(spec.est_memory_gb)
-            self.manager.reserved_gb = spec.est_memory_gb
+            unloaded = await self.make_room(need)
+            self.manager.reserved_gb = need
             seed = job.seed if job.seed is not None else random.randrange(2 ** 31)
             out_dir.mkdir(parents=True, exist_ok=True)
             out = out_dir / f"{spec.id}-{int(time.time())}-{seed}.mp4"
