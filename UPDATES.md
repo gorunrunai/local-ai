@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/gorunrunai/local-ai/main/install.sh
 
 ## 0.1.1 (2026-10-02)
 
-Longer videos, and an installer that copes better when something goes wrong.
+Longer videos, a save dialog for downloads, and an installer that copes better when something goes wrong.
 
 - **Choose how long videos can be.** Settings → Models → Video generation now has a slider for each video
   engine. LTX-2.3 can go up to 20 seconds (it was fixed at 10), or less if your Mac's memory can't fit it.
@@ -24,6 +24,9 @@ Longer videos, and an installer that copes better when something goes wrong.
 - **Video memory is planned for the clip's length.** Longer clips now get the extra memory they need set
   aside before rendering starts. A clip too big for your Mac is refused with a clear message instead of
   slowing everything down.
+- **Choose where downloads are saved.** In the Mac app, downloading a video, an exported chat or an artifact
+  now asks where to save it and what to call it, starting in your Downloads folder. The chime that played
+  when a download finished, which sounded like an error, is gone.
 - **The Mac app is downloaded ready-made** instead of being built on your Mac, so the install no longer
   depends on Apple's developer tools working. If the download isn't possible, it's built on your Mac as
   before.
