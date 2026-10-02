@@ -1,6 +1,6 @@
 [project]
 name = "gorunrun-local"
-version = "0.1.0"
+version = "0.1.1"
 description = "GoRunRun Local AI: a private, fully local multimodal AI assistant for Apple Silicon Macs"
 requires-python = ">=3.12,<3.13"
 dependencies = [
