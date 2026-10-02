@@ -240,20 +240,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         download.delegate = self
     }
 
+    // Downloads (videos, exported chats, artifacts) ask where to save, like a browser set to ask.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
-        var dest = downloads.appendingPathComponent(suggestedFilename)
-        let base = dest.deletingPathExtension().lastPathComponent, ext = dest.pathExtension
-        var n = 1
-        while FileManager.default.fileExists(atPath: dest.path) {
-            dest = downloads.appendingPathComponent("\(base) (\(n)).\(ext)")
-            n += 1
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedFilename
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.beginSheetModal(for: window) { result in
+            guard result == .OK, let url = panel.url else { completionHandler(nil); return }  // cancelled
+            // The panel has already asked whether to replace an existing file; a download can't
+            // overwrite one itself.
+            try? FileManager.default.removeItem(at: url)
+            completionHandler(url)
         }
-        completionHandler(dest)
     }
-    func downloadDidFinish(_ download: WKDownload) {
-        NSSound(named: "Glass")?.play()
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        let alert = NSAlert()
+        alert.messageText = "The download didn't finish"
+        alert.informativeText = error.localizedDescription
+        alert.beginSheetModal(for: window)
     }
 
     // target=_blank links and window.open
