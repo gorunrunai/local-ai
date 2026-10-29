@@ -95,7 +95,16 @@ fi
 TTY_SAVED=""
 SESSION=0   # 1 while the installer has its own screen (the terminal's alternate screen, like vim)
 FINAL=""    # printed on the normal screen once the installer's screen closes
+SUDO_KEEPALIVE=""   # pid of the loop that keeps the password valid while Homebrew installs
+stop_sudo_keepalive() {
+  [ -n "$SUDO_KEEPALIVE" ] || return 0
+  kill "$SUDO_KEEPALIVE" 2>/dev/null || true
+  wait "$SUDO_KEEPALIVE" 2>/dev/null || true    # it ends "killed": not an error (the script runs with -e)
+  SUDO_KEEPALIVE=""
+  return 0
+}
 cleanup() {
+  stop_sudo_keepalive
   [ -n "$TTY_SAVED" ] && stty "$TTY_SAVED" </dev/tty 2>/dev/null
   [ "$FANCY" = 1 ] && printf '%s' "${ESC}[?25h${R}"
   if [ "$SESSION" = 1 ]; then printf '%s' "${ESC}[?1049l"; SESSION=0; fi   # the earlier screen comes back
@@ -660,11 +669,41 @@ if ! xcode-select -p >/dev/null 2>&1; then
   xcode-select --install >/dev/null 2>&1 || true
   task "Installing Apple's command line tools" wait_for_clt
 fi
+# Homebrew. Its installer runs with NONINTERACTIVE=1 (no "Press RETURN" prompt), which also means it
+# never asks for a password: it uses `sudo -n` and stops unless sudo was used in this Terminal in the last
+# few minutes. So the password is asked for here first, and Homebrew's output goes to the log.
+# Reported by Chris Matthews, PMP: the installer stopped at this step without saying why, and worked
+# once Homebrew had been installed by hand.
+install_homebrew() {
+  local script
+  script=$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh) \
+    || { echo "Couldn't download Homebrew's installer from GitHub."; return 1; }
+  NONINTERACTIVE=1 /bin/bash -c "$script" </dev/null
+}
 if ! command -v brew >/dev/null 2>&1; then
   if ! [ -x /opt/homebrew/bin/brew ]; then
-    info "Installing Homebrew, the standard Mac package manager. It may ask for your Mac password."
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/tty
-    ok "Homebrew"
+    if ! id -Gn | tr ' ' '\n' | grep -qx admin; then
+      die "Homebrew, which the installer uses to get its tools, needs an administrator account to install." \
+        "      Install Homebrew from https://brew.sh while signed in as an administrator (or ask one to),
+      then run this installer again."
+    fi
+    if ! /usr/bin/sudo -n -v 2>/dev/null; then       # no recent password in this Terminal
+      if [ "$INTERACTIVE" = 0 ]; then
+        die "Homebrew isn't installed, and installing it needs your Mac password." \
+          "      Run the installer in Terminal without --yes, or install Homebrew from https://brew.sh first."
+      fi
+      info "Installing Homebrew, the standard Mac package manager, needs your Mac password once."
+      info "Type it and press Return (nothing shows as you type)."
+      # shellcheck disable=SC2024  # the redirect is for sudo itself: it reads the password from the keyboard
+      /usr/bin/sudo -v </dev/tty \
+        || die "Homebrew wasn't installed: the password wasn't accepted." \
+               "      Run the installer again to try once more."
+    fi
+    # Keep the password valid while Homebrew installs (sudo forgets it after 5 minutes).
+    ( while kill -0 $$ 2>/dev/null && sleep 50; do /usr/bin/sudo -n -v || exit 0; done ) >/dev/null 2>&1 &
+    SUDO_KEEPALIVE=$!
+    task "Installing Homebrew" install_homebrew     # on failure, the exit stops the loop (cleanup)
+    stop_sudo_keepalive
   fi
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
